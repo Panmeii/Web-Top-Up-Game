@@ -1,0 +1,213 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  MEMBER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SUCCESS
+  FAILED
+  REFUND
+}
+
+enum MemberTier {
+  REGULAR
+  VIPP_MEMBER
+  PLATINUM_MEMBER
+}
+
+enum SupplierType {
+  DIGIFLAZZ
+  VIP_RESELLER
+  IAK
+  APIGAMES
+}
+
+enum PaymentType {
+  QRIS
+  EWALLET
+  VA
+  TRANSFER
+}
+
+enum LogDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  name         String?
+  passwordHash String
+  role         Role           @default(USER)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  
+  wallet       Wallet?
+  member       Member?
+  transactions Transaction[]
+  notifications Notification[]
+  auditLogs    AuditLog[]
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Float    @default(0.0)
+  currency  String   @default("IDR")
+  updatedAt DateTime @updatedAt
+}
+
+model Member {
+  id           String     @id @default(uuid())
+  userId       String     @unique
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier         MemberTier @default(REGULAR)
+  discountRate Float      @default(0.0) // percentage discount on transactions
+  activeUntil  DateTime?
+  updatedAt    DateTime   @updatedAt
+}
+
+model Game {
+  id               String        @id
+  slug             String        @unique
+  name             String
+  logo             String
+  banner           String
+  publisher        String
+  status           String        @default("ACTIVE") // ACTIVE, INACTIVE
+  sortOrder        Int           @default(0)
+  inputPlaceholder String
+  hasServer        Boolean       @default(false)
+  
+  products         Product[]
+  transactions     Transaction[]
+}
+
+model Product {
+  id             String        @id
+  gameId         String
+  game           Game          @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  name           String
+  sku            String        @unique
+  priceSupplier  Float
+  priceFinal     Float
+  status         String        @default("ACTIVE") // ACTIVE, INACTIVE
+  isFlashSale    Boolean       @default(false)
+  flashSalePrice Float?
+  flashSaleQuota Int?
+  
+  transactions   Transaction[]
+}
+
+model Transaction {
+  id                String      @id // Invoice ID (e.g., INV-xxxxxxxx)
+  userId            String?
+  user              User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  gameId            String
+  game              Game        @relation(fields: [gameId], references: [id])
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id])
+  gameName          String
+  productName       String
+  userUid           String
+  userServer        String?
+  priceSupplier     Float
+  priceBase         Float       // Pre-discount price
+  priceFinal        Float       // Total billed amount
+  discountAmount    Float       @default(0.0)
+  voucherApplied    String?
+  paymentMethodId   String
+  paymentMethodName String
+  status            OrderStatus @default(PENDING)
+  supplierUsed      String
+  supplierStatus    String
+  log               String[]    // Audit trace for this order
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+}
+
+model Voucher {
+  code        String   @id
+  discountMax Float
+  minPurchase Float
+  quota       Int
+  used        Int      @default(0)
+  status      String   @default("ACTIVE") // ACTIVE, INACTIVE
+  expiryDate  DateTime
+}
+
+model Banner {
+  id        String   @id @default(uuid())
+  imageUrl  String
+  title     String
+  linkUrl   String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+}
+
+model Supplier {
+  id          String       @id
+  name        String
+  type        SupplierType
+  apiUrl      String
+  apiUsername String
+  apiKey      String
+  balance     Float        @default(0.0)
+  isActive    Boolean      @default(true)
+  updatedAt   DateTime     @updatedAt
+}
+
+model PaymentMethod {
+  id         String      @id
+  name       String
+  type       PaymentType
+  feeFixed   Float       @default(0.0)
+  feePercent Float       @default(0.0)
+  logo       String
+  status     String      @default("ACTIVE") // ACTIVE, INACTIVE
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   String
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model WebhookLog {
+  id         String       @id @default(uuid())
+  provider   String
+  direction  LogDirection @default(INBOUND)
+  payload    String       @db.Text
+  isVerified Boolean      @default(false)
+  statusCode Int          @default(200)
+  timestamp  DateTime     @default(now())
+}
